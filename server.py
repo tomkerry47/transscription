@@ -19,8 +19,9 @@ async def transcribe(websocket):
         async for message in websocket:
             # The message is expected to be raw audio data (bytes)
             if isinstance(message, bytes):
-                # Process the audio data
-                result = pipe(message)
+                # Process the audio data, providing the raw bytes and the sample rate
+                audio_input = {"raw": message, "sampling_rate": 16000}
+                result = pipe(audio_input)
                 # Send back the transcription result
                 await websocket.send(json.dumps({
                     "text": result["text"]
