@@ -1,0 +1,280 @@
+# Whisper Server Setup Script for Windows
+# Run this script in PowerShell as Administrator
+
+Write-Host "🎯 Whisper Server Setup for Windows" -ForegroundColor Green
+Write-Host "Setting up local transcription server for THRIVE app..." -ForegroundColor Yellow
+
+# Check if running as Administrator
+if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Warning "This script should be run as Administrator for firewall configuration."
+    $continue = Read-Host "Continue anyway? (y/n)"
+    if ($continue -ne "y") { exit }
+}
+
+# Step 1: Check Python installation
+Write-Host "`n📋 Step 1: Checking Python installation..." -ForegroundColor Cyan
+try {
+    $pythonVersion = python --version 2>&1
+    Write-Host "✅ Python found: $pythonVersion" -ForegroundColor Green
+    
+    if ($pythonVersion -notmatch "3\.10") {
+        Write-Warning "Python 3.10 recommended, but $pythonVersion should work"
+    }
+} catch {
+    Write-Error "❌ Python not found. Please install Python 3.10+ first."
+    exit 1
+}
+
+# Step 2: Check NVIDIA drivers
+Write-Host "`n🎮 Step 2: Checking NVIDIA GPU..." -ForegroundColor Cyan
+try {
+    $nvidiaInfo = nvidia-smi 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ NVIDIA GPU detected" -ForegroundColor Green
+    } else {
+        throw "nvidia-smi failed"
+    }
+} catch {
+    Write-Warning "⚠️ NVIDIA drivers not detected. Install GPU drivers first."
+    Write-Host "Download from: https://www.nvidia.com/drivers" -ForegroundColor Yellow
+}
+
+# Step 3: Create project directory
+Write-Host "`n📁 Step 3: Creating project directory..." -ForegroundColor Cyan
+$projectPath = "C:\whisper-server"
+if (Test-Path $projectPath) {
+    Write-Host "✅ Directory already exists: $projectPath" -ForegroundColor Green
+} else {
+    New-Item -ItemType Directory -Path $projectPath | Out-Null
+    Write-Host "✅ Created directory: $projectPath" -ForegroundColor Green
+}
+
+Set-Location $projectPath
+
+# Step 4: Create virtual environment
+Write-Host "`n🔧 Step 4: Setting up virtual environment..." -ForegroundColor Cyan
+if (Test-Path "whisper-env") {
+    Write-Host "✅ Virtual environment already exists" -ForegroundColor Green
+} else {
+    python -m venv whisper-env
+    Write-Host "✅ Created virtual environment" -ForegroundColor Green
+}
+
+# Step 5: Activate virtual environment and install packages
+Write-Host "`n📦 Step 5: Installing Python packages..." -ForegroundColor Cyan
+Write-Host "This may take several minutes..." -ForegroundColor Yellow
+
+& ".\whisper-env\Scripts\Activate.ps1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "PowerShell execution policy may be blocking activation."
+    Write-Host "Running: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Yellow
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+    & ".\whisper-env\Scripts\Activate.ps1"
+}
+
+# Install packages
+Write-Host "Installing PyTorch with CUDA support..." -ForegroundColor Yellow
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+Write-Host "Installing Whisper and other dependencies..." -ForegroundColor Yellow
+pip install openai-whisper fastapi uvicorn websockets numpy
+
+# Step 6: Configure Windows Firewall
+Write-Host "`n🔥 Step 6: Configuring Windows Firewall..." -ForegroundColor Cyan
+try {
+    New-NetFirewallRule -DisplayName "Whisper Server" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -ErrorAction Stop
+    Write-Host "✅ Firewall rule created for port 8000" -ForegroundColor Green
+} catch {
+    Write-Warning "⚠️ Could not create firewall rule. You may need to configure manually."
+}
+
+# Step 7: Create server files
+Write-Host "`n📝 Step 7: Creating server files..." -ForegroundColor Cyan
+
+# Create whisper_server.py (basic version for testing)
+$serverScript = @"
+#!/usr/bin/env python3
+import asyncio
+import json
+import logging
+import numpy as np
+import torch
+import whisper
+import websockets
+from websockets.exceptions import ConnectionClosed
+from collections import deque
+import threading
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class WhisperTranscriber:
+    def __init__(self, model_name="medium", device=None):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        logger.info(f"Loading Whisper model '{model_name}' on device: {device}")
+        self.model = whisper.load_model(model_name, device=device)
+        self.device = device
+        self.sample_rate = 16000
+        self.chunk_duration = 2.0
+        self.chunk_samples = int(self.sample_rate * self.chunk_duration)
+        self.audio_buffer = deque()
+        self.buffer_lock = threading.Lock()
+        logger.info("Whisper transcriber initialized successfully")
+    
+    def add_audio_data(self, audio_bytes):
+        try:
+            audio_data = np.frombuffer(audio_bytes, dtype=np.int16)
+            audio_data = audio_data.astype(np.float32) / 32768.0
+            with self.buffer_lock:
+                self.audio_buffer.extend(audio_data)
+        except Exception as e:
+            logger.error(f"Error processing audio data: {e}")
+    
+    def get_audio_chunk(self):
+        with self.buffer_lock:
+            if len(self.audio_buffer) >= self.chunk_samples:
+                chunk = np.array([self.audio_buffer.popleft() for _ in range(self.chunk_samples)])
+                return chunk
+        return None
+    
+    def transcribe_chunk(self, audio_chunk):
+        try:
+            if len(audio_chunk) == 0:
+                return None
+            
+            if len(audio_chunk) < self.chunk_samples:
+                audio_chunk = np.pad(audio_chunk, (0, self.chunk_samples - len(audio_chunk)))
+            elif len(audio_chunk) > self.chunk_samples:
+                audio_chunk = audio_chunk[:self.chunk_samples]
+            
+            result = self.model.transcribe(audio_chunk, fp16=torch.cuda.is_available())
+            text = result.get("text", "").strip()
+            if text:
+                logger.info(f"Transcribed: {text}")
+                return {"text": text, "is_final": True, "confidence": 1.0}
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+        return None
+
+class WebSocketServer:
+    def __init__(self, host="0.0.0.0", port=8000, model_name="medium"):
+        self.host = host
+        self.port = port
+        self.transcriber = WhisperTranscriber(model_name=model_name)
+        self.active_connections = set()
+        
+    async def handle_client(self, websocket, path):
+        client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        logger.info(f"Client connected: {client_id}")
+        self.active_connections.add(websocket)
+        
+        transcription_task = asyncio.create_task(self.transcription_loop(websocket, client_id))
+        
+        try:
+            async for message in websocket:
+                if isinstance(message, bytes):
+                    self.transcriber.add_audio_data(message)
+                else:
+                    try:
+                        data = json.loads(message)
+                        logger.info(f"Received control message from {client_id}: {data}")
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON from {client_id}: {message}")
+        except ConnectionClosed:
+            logger.info(f"Client disconnected: {client_id}")
+        except Exception as e:
+            logger.error(f"Error handling client {client_id}: {e}")
+        finally:
+            self.active_connections.discard(websocket)
+            transcription_task.cancel()
+            logger.info(f"Cleaned up connection for {client_id}")
+    
+    async def transcription_loop(self, websocket, client_id):
+        try:
+            while True:
+                chunk = self.transcriber.get_audio_chunk()
+                if chunk is not None:
+                    result = self.transcriber.transcribe_chunk(chunk)
+                    if result:
+                        message = json.dumps(result)
+                        await websocket.send(message)
+                        logger.debug(f"Sent transcription to {client_id}: {result['text'][:50]}...")
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            logger.info(f"Transcription loop cancelled for {client_id}")
+        except Exception as e:
+            logger.error(f"Transcription loop error for {client_id}: {e}")
+    
+    async def start_server(self):
+        logger.info(f"Starting Whisper WebSocket server on {self.host}:{self.port}")
+        server = await websockets.serve(self.handle_client, self.host, self.port, path="/ws/transcribe")
+        logger.info(f"Whisper server listening at ws://{self.host}:{self.port}/ws/transcribe")
+        logger.info("Server ready to accept connections from THRIVE app")
+        return server
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Whisper WebSocket Server for THRIVE")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--model", default="medium", 
+                       choices=["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
+                       help="Whisper model to use")
+    args = parser.parse_args()
+    
+    if torch.cuda.is_available():
+        logger.info(f"CUDA available: {torch.cuda.get_device_name()}")
+        logger.info(f"CUDA version: {torch.version.cuda}")
+    else:
+        logger.warning("CUDA not available, using CPU (will be slower)")
+    
+    server = WebSocketServer(host=args.host, port=args.port, model_name=args.model)
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.start_server())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        logger.info("Server shutdown requested")
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+
+if __name__ == "__main__":
+    main()
+"@
+
+Set-Content -Path "whisper_server.py" -Value $serverScript
+Write-Host "✅ Created whisper_server.py" -ForegroundColor Green
+
+# Create start script
+$startScript = @"
+@echo off
+cd /d C:\whisper-server
+call whisper-env\Scripts\activate.bat
+echo Starting Whisper WebSocket Server...
+echo Server will be available at: ws://10.105.104.121:8000/ws/transcribe
+echo Press Ctrl+C to stop
+python whisper_server.py --host 0.0.0.0 --port 8000 --model medium
+pause
+"@
+
+Set-Content -Path "start_server.bat" -Value $startScript
+Write-Host "✅ Created start_server.bat" -ForegroundColor Green
+
+# Summary
+Write-Host "`n🎉 Setup Complete!" -ForegroundColor Green
+Write-Host "`nNext steps:" -ForegroundColor Yellow
+Write-Host "1. Double-click 'start_server.bat' to start the Whisper server" -ForegroundColor White
+Write-Host "2. Wait for model download (first time only - ~769MB for medium model)" -ForegroundColor White
+Write-Host "3. Start your THRIVE app with: npm start" -ForegroundColor White
+Write-Host "4. Make sure WHISPER_ENABLED=true in your .env file" -ForegroundColor White
+
+Write-Host "`nFiles created in C:\whisper-server:" -ForegroundColor Cyan
+Write-Host "- whisper_server.py (main server)" -ForegroundColor White
+Write-Host "- start_server.bat (startup script)" -ForegroundColor White
+Write-Host "- whisper-env\ (virtual environment)" -ForegroundColor White
+
+Write-Host "`nServer will be available at: ws://10.105.104.121:8000/ws/transcribe" -ForegroundColor Green
