@@ -53,7 +53,12 @@ async def transcribe(websocket, path):
                     "text": result["text"]
                 }))
 
+# Listen on all available network interfaces on port 8765
+start_server = websockets.serve(transcribe, "0.0.0.0", 8765)
 
+print("Whisper server started on ws://0.0.0.0:8765. Ready for connections.")
+asyncio.get_event_loop().run_until_complete(start_server)
+asyncio.get_event_loop().run_forever()
 
 
 PS C:\TranscriptionV2> python server.py
@@ -70,10 +75,3 @@ RuntimeError: no running event loop
         print("Client disconnected.")
     except Exception as e:
         print(f"An error occurred: {e}")
-
-# Listen on all available network interfaces on port 8765
-start_server = websockets.serve(transcribe, "0.0.0.0", 8765)
-
-print("Whisper server started on ws://0.0.0.0:8765. Ready for connections.")
-asyncio.get_event_loop().run_until_complete(start_server)
-asyncio.get_event_loop().run_forever()
