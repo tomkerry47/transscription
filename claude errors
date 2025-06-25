@@ -1,0 +1,14 @@
+When running activate i get the following 
+
+.\start_server.bat : INFO:__main__:CUDA available: NVIDIA GeForce RTX 3050
+At line:1 char:1
++ .\start_server.bat
++ ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO:__main__:C...eForce RTX 3050:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:__main__:CUDA version: 11.8
+INFO:__main__:Loading Whisper model 'medium' on device: cuda
+INFO:__main__:Whisper transcriber initialized successfully
+INFO:__main__:Starting Whisper WebSocket server on 0.0.0.0:8000
+ERROR:__main__:Server error: BaseEventLoop.create_server() got an unexpected keyword argument 'path'
