@@ -4,3 +4,9 @@ Traceback (most recent call last):
   File "C:\Users\ISadmin\AppData\Local\Programs\Python\Python310\lib\site-packages\websockets\asyncio\server.py", line 376, in conn_handler
     await self.handler(connection)
 TypeError: transcribe() missing 1 required positional argument: 'path'
+
+
+
+
+
+An error occurred: Soundfile is either not in the correct format or is malformed. Ensure that the soundfile has a valid audio file extension (e.g. wav, flac or mp3) and is not corrupted. If reading from a remote URL, ensure that the URL is the full address to **download** the audio file.
