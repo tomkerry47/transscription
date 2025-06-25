@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import json
 import torch
+import numpy as np
 from transformers import pipeline
 
 # Setup the Whisper pipeline
@@ -19,8 +20,11 @@ async def transcribe(websocket):
         async for message in websocket:
             # The message is expected to be raw audio data (bytes)
             if isinstance(message, bytes):
+                # Convert the raw bytes to a NumPy array of 32-bit floats
+                audio_np = np.frombuffer(message, dtype=np.float32)
+
                 # Process the audio data, providing the raw bytes and the sample rate
-                audio_input = {"raw": message, "sampling_rate": 16000}
+                audio_input = {"raw": audio_np, "sampling_rate": 16000}
                 result = pipe(audio_input)
                 # Send back the transcription result
                 await websocket.send(json.dumps({
