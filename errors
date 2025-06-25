@@ -1,0 +1,6 @@
+Whisper server started on ws://0.0.0.0:8765. Ready for connections.
+connection handler failed
+Traceback (most recent call last):
+  File "C:\Users\ISadmin\AppData\Local\Programs\Python\Python310\lib\site-packages\websockets\asyncio\server.py", line 376, in conn_handler
+    await self.handler(connection)
+TypeError: transcribe() missing 1 required positional argument: 'path'
