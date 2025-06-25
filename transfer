@@ -52,6 +52,20 @@ async def transcribe(websocket, path):
                 await websocket.send(json.dumps({
                     "text": result["text"]
                 }))
+
+
+
+
+PS C:\TranscriptionV2> python server.py
+Device set to use cuda:0
+Traceback (most recent call last):
+  File "C:\TranscriptionV2\server.py", line 34, in <module>
+    start_server = websockets.serve(transcribe, "0.0.0.0", 8765)
+  File "C:\Users\ISadmin\AppData\Local\Programs\Python\Python310\lib\site-packages\websockets\asyncio\server.py", line 743, in __init__
+    self.server = Server(
+  File "C:\Users\ISadmin\AppData\Local\Programs\Python\Python310\lib\site-packages\websockets\asyncio\server.py", line 284, in __init__
+    self.loop = asyncio.get_running_loop()
+RuntimeError: no running event loop
     except websockets.exceptions.ConnectionClosedOK:
         print("Client disconnected.")
     except Exception as e:
