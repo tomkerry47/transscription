@@ -13,7 +13,7 @@ pipe = pipeline(
     device=device
 )
 
-async def transcribe(websocket, path):
+async def transcribe(websocket):
     print("Client connected.")
     try:
         async for message in websocket:
