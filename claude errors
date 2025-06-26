@@ -1,11 +1,23 @@
-PS C:\whisper-server> .\start_server.bat
-Starting Whisper WebSocket Server...
-Server will be available at: ws://10.105.104.121:8000/ws/transcribe
 Press Ctrl+C to stop
-INFO:__main__:CUDA available: NVIDIA GeForce RTX 3050
-INFO:__main__:CUDA version: 11.8
+INFO:__main__:✅ CUDA available: NVIDIA GeForce RTX 3050
+INFO:__main__:✅ CUDA version: 11.8
 INFO:__main__:Loading Whisper model 'medium' on device: cuda
 INFO:__main__:Whisper transcriber initialized successfully
 INFO:__main__:Starting Whisper WebSocket server on 0.0.0.0:8000
-ERROR:__main__:Server error: [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
-Press any key to continue . . .
+INFO:websockets.server:server listening on 0.0.0.0:8000
+INFO:__main__:✅ Whisper server listening at ws://0.0.0.0:8000/ws/transcribe
+INFO:__main__:✅ Server ready to accept connections from THRIVE app
+INFO:__main__:✅ Using model: cuda:0
+INFO:__main__:🚀 Server started successfully! Press Ctrl+C to stop.
+INFO:websockets.server:connection open
+ERROR:websockets.server:connection handler failed
+Traceback (most recent call last):
+  File "C:\whisper-server\whisper-env\lib\site-packages\websockets\asyncio\server.py", line 376, in conn_handler
+    await self.handler(connection)
+TypeError: WebSocketServer.handler() missing 1 required positional argument: 'path'
+INFO:websockets.server:connection open
+ERROR:websockets.server:connection handler failed
+Traceback (most recent call last):
+  File "C:\whisper-server\whisper-env\lib\site-packages\websockets\asyncio\server.py", line 376, in conn_handler
+    await self.handler(connection)
+TypeError: WebSocketServer.handler() missing 1 required positional argument: 'path'
