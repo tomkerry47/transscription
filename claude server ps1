@@ -1,3 +1,89 @@
+@echo off
+echo Starting Whisper Server with medium model (improved phrases)...
+echo.
+echo This will use 4-second chunks for better sentence formation
+echo.
+
+cd /d "C:\whisper-server"
+if not exist "venv" (
+    echo Error: Virtual environment not found at C:\whisper-server\venv
+    echo Please run the setup script first.
+    pause
+    exit /b 1
+)
+
+echo Activating virtual environment...
+call venv\Scripts\activate.bat
+
+echo Starting Whisper server with medium model...
+python "%~dp0whisper_server_corrected.py" --model medium --host 0.0.0.0 --port 8000
+
+pause
+
+@echo off
+echo Starting Whisper Server with large-v3-turbo model...
+echo.
+echo This will use 4-second chunks for better sentence formation
+echo and the fastest large model available (large-v3-turbo)
+echo.
+
+cd /d "C:\whisper-server"
+if not exist "venv" (
+    echo Error: Virtual environment not found at C:\whisper-server\venv
+    echo Please run the setup script first.
+    pause
+    exit /b 1
+)
+
+echo Activating virtual environment...
+call venv\Scripts\activate.bat
+
+echo Starting Whisper server with large-v3-turbo model...
+python "%~dp0whisper_server_corrected.py" --model large-v3-turbo --host 0.0.0.0 --port 8000
+
+pause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Whisper Server Setup Script for Windows
 # Run this script in PowerShell as Administrator
 
