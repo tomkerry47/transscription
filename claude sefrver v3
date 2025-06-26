@@ -150,8 +150,7 @@ class WhisperTranscriber:
                         "phrase_id": self.current_phrase_id,
                         "accumulated_text": self.accumulated_final_text,
                         "confidence": 1.0,
-                        "timestamp": now.isoformat()
-                    }
+                        "timestamp": now.isoformat()                    }
                     logger.info(f"Partial phrase {self.current_phrase_id}: {text}")
                     return partial_result
                 
@@ -180,7 +179,8 @@ class WhisperTranscriber:
                     "timestamp": datetime.utcnow().isoformat(),
                     "finalized_on_stop": True
                 }
-                  # Clear the partial
+                
+                # Clear the partial
                 self.current_partial_text = ""
                 self.last_transcription = ""
                 
@@ -191,6 +191,29 @@ class WhisperTranscriber:
             logger.error(f"Error finalizing remaining partials: {e}")
         
         return None
+    
+    def reset_session(self):
+        """Reset transcriber state for a new recording session"""
+        try:
+            with self.buffer_lock:
+                # Clear all audio buffers
+                self.audio_buffer.clear()
+                self.phrase_bytes = bytes()
+                
+                # Reset transcription state
+                self.accumulated_final_text = ""
+                self.current_partial_text = ""
+                self.last_transcription = ""
+                
+                # Reset phrase management
+                self.phrase_time = None
+                self.current_phrase_id = 0
+                self.finalize_requested = False
+                
+                logger.info("Transcriber session reset - cleared all previous data")
+                
+        except Exception as e:
+            logger.error(f"Error resetting session: {e}")
 
 class WebSocketServer:
     def __init__(self, host="0.0.0.0", port=8000, model_name="medium"):
@@ -224,11 +247,14 @@ class WebSocketServer:
                     # Raw audio data
                     logger.debug(f"Received {len(message)} bytes from {client_id}")
                     self.transcriber.add_audio_data(message)
-                else:                    # Control messages
+                else:
+                    # Control messages
                     try:
                         data = json.loads(message)
                         if data.get("type") == "start":
                             logger.info(f"Starting real-time transcription for {client_id}")
+                            # Reset transcriber state for new session
+                            self.transcriber.reset_session()
                         elif data.get("type") == "finalize":
                             logger.info(f"Finalizing remaining partials for {client_id}")
                             # Process any remaining partial text as final
