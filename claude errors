@@ -1,15 +1,11 @@
+PS C:\whisper-server> .\start_server.bat
+Starting Whisper WebSocket Server...
+Server will be available at: ws://10.105.104.121:8000/ws/transcribe
 Press Ctrl+C to stop
-.\start_server.bat : INFO:__main__:CUDA available: NVIDIA GeForce RTX 3050
-At line:1 char:1
-+ .\start_server.bat
-+ ~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (INFO:__main__:C...eForce RTX 3050:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
+INFO:__main__:CUDA available: NVIDIA GeForce RTX 3050
 INFO:__main__:CUDA version: 11.8
 INFO:__main__:Loading Whisper model 'medium' on device: cuda
 INFO:__main__:Whisper transcriber initialized successfully
 INFO:__main__:Starting Whisper WebSocket server on 0.0.0.0:8000
-INFO:websockets.server:server listening on 0.0.0.0:8000
-INFO:__main__:Whisper server listening at ws://0.0.0.0:8000/ws/transcribe
-INFO:__main__:Server ready to accept connections from THRIVE app
+ERROR:__main__:Server error: [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+Press any key to continue . . .
