@@ -49,6 +49,10 @@ class WhisperTranscriber:
         self.current_phrase_id = 0
         self.last_transcription = ""
         
+        # Accumulated final transcripts
+        self.accumulated_final_text = ""
+        self.current_partial_text = ""
+        
         # Audio buffer
         self.audio_buffer = deque()
         self.buffer_lock = threading.Lock()
@@ -70,9 +74,8 @@ class WhisperTranscriber:
                 self.audio_buffer.extend(audio_bytes)
         except Exception as e:
             logger.error(f"Error adding audio data: {e}")
-    
     def get_transcription_update(self):
-        """Get real-time transcription update with self-correction"""
+        """Get real-time transcription update with proper text accumulation"""
         try:
             now = datetime.utcnow()
             
@@ -83,11 +86,32 @@ class WhisperTranscriber:
                 # Check if phrase is complete (silence timeout)
                 phrase_complete = False
                 if self.phrase_time and now - self.phrase_time > timedelta(seconds=self.phrase_timeout):
-                    # Phrase is complete - start new phrase
-                    phrase_complete = True
-                    self.phrase_bytes = bytes()
-                    self.current_phrase_id += 1
-                    logger.debug(f"Phrase {self.current_phrase_id-1} completed due to timeout")
+                    # Phrase is complete - finalize current partial text
+                    if self.current_partial_text.strip():
+                        # Add current partial to accumulated final text
+                        if self.accumulated_final_text:
+                            self.accumulated_final_text += " " + self.current_partial_text.strip()
+                        else:
+                            self.accumulated_final_text = self.current_partial_text.strip()
+                        
+                        # Send final result for the completed phrase
+                        final_result = {
+                            "text": self.current_partial_text.strip(),
+                            "is_final": True,
+                            "phrase_id": self.current_phrase_id,
+                            "accumulated_text": self.accumulated_final_text,
+                            "confidence": 1.0,
+                            "timestamp": now.isoformat()
+                        }
+                        
+                        # Reset for new phrase
+                        self.current_partial_text = ""
+                        self.phrase_bytes = bytes()
+                        self.current_phrase_id += 1
+                        self.last_transcription = ""
+                        
+                        logger.info(f"Final phrase {self.current_phrase_id-1}: {final_result['text']}")
+                        return final_result
                 
                 # Update phrase time
                 self.phrase_time = now
@@ -114,22 +138,23 @@ class WhisperTranscriber:
                 
                 text = result.get("text", "").strip()
                 
-                if text:
-                    # Determine if this is partial or final
-                    is_final = phrase_complete
-                    is_update = text != self.last_transcription
+                if text and text != self.last_transcription:
+                    # Update current partial text
+                    self.current_partial_text = text
+                    self.last_transcription = text
                     
-                    if is_update:
-                        self.last_transcription = text
-                        logger.info(f"{'Final' if is_final else 'Partial'}: {text}")
-                        
-                        return {
-                            "text": text,
-                            "is_final": is_final,
-                            "phrase_id": self.current_phrase_id,
-                            "confidence": 1.0,
-                            "timestamp": now.isoformat()
-                        }
+                    # Send partial result
+                    partial_result = {
+                        "text": text,
+                        "is_final": False,
+                        "phrase_id": self.current_phrase_id,
+                        "accumulated_text": self.accumulated_final_text,
+                        "confidence": 1.0,
+                        "timestamp": now.isoformat()
+                    }
+                    
+                    logger.info(f"Partial phrase {self.current_phrase_id}: {text}")
+                    return partial_result
                 
         except Exception as e:
             logger.error(f"Transcription error: {e}")
