@@ -48,10 +48,10 @@ class WhisperTranscriber:
         self.phrase_time = None
         self.current_phrase_id = 0
         self.last_transcription = ""
-        
-        # Accumulated final transcripts
+          # Accumulated final transcripts
         self.accumulated_final_text = ""
         self.current_partial_text = ""
+        self.finalize_requested = False
         
         # Audio buffer
         self.audio_buffer = deque()
@@ -152,12 +152,43 @@ class WhisperTranscriber:
                         "confidence": 1.0,
                         "timestamp": now.isoformat()
                     }
-                    
                     logger.info(f"Partial phrase {self.current_phrase_id}: {text}")
                     return partial_result
                 
         except Exception as e:
             logger.error(f"Transcription error: {e}")
+        
+        return None
+    
+    def finalize_remaining_partials(self):
+        """Finalize any remaining partial text when stopping"""
+        try:
+            if self.current_partial_text.strip():
+                # Add current partial to accumulated final text
+                if self.accumulated_final_text:
+                    self.accumulated_final_text += " " + self.current_partial_text.strip()
+                else:
+                    self.accumulated_final_text = self.current_partial_text.strip()
+                
+                # Create final result for the remaining partial
+                final_result = {
+                    "text": self.current_partial_text.strip(),
+                    "is_final": True,
+                    "phrase_id": self.current_phrase_id,
+                    "accumulated_text": self.accumulated_final_text,
+                    "confidence": 1.0,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "finalized_on_stop": True
+                }
+                  # Clear the partial
+                self.current_partial_text = ""
+                self.last_transcription = ""
+                
+                logger.info(f"Finalized remaining partial: {final_result['text']}")
+                return final_result
+                
+        except Exception as e:
+            logger.error(f"Error finalizing remaining partials: {e}")
         
         return None
 
@@ -193,12 +224,19 @@ class WebSocketServer:
                     # Raw audio data
                     logger.debug(f"Received {len(message)} bytes from {client_id}")
                     self.transcriber.add_audio_data(message)
-                else:
-                    # Control messages
+                else:                    # Control messages
                     try:
                         data = json.loads(message)
                         if data.get("type") == "start":
                             logger.info(f"Starting real-time transcription for {client_id}")
+                        elif data.get("type") == "finalize":
+                            logger.info(f"Finalizing remaining partials for {client_id}")
+                            # Process any remaining partial text as final
+                            final_result = self.transcriber.finalize_remaining_partials()
+                            if final_result:
+                                message = json.dumps(final_result)
+                                await websocket.send(message)
+                                logger.info(f"Sent finalized result to {client_id}: {final_result['text']}")
                         elif data.get("type") == "stop":
                             logger.info(f"Stopping transcription for {client_id}")
                             break
