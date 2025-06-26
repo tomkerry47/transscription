@@ -2,7 +2,7 @@
 """
 Real-time Whisper WebSocket Server for THRIVE Assessment Tool
 Supports continuous audio streaming and transcription
-FINAL VERSION - Fixed WebSocket handler signature
+CORRECTED VERSION - Fixed WebSocket handler signature
 """
 
 import asyncio
@@ -98,9 +98,12 @@ class WebSocketServer:
         self.port = port
         self.transcriber = WhisperTranscriber(model_name=model_name)
         self.active_connections = set()
+    
+    async def handle_client(self, websocket):
+        """Handle WebSocket client connection - Fixed signature for websockets library"""
+        # Get the path from the websocket request
+        path = websocket.path if hasattr(websocket, 'path') else "/ws/transcribe"
         
-    async def handler(self, websocket, path):
-        """Handle WebSocket client connection - using handler name to match websockets library"""
         # Check if the client is connecting to the correct path
         if path != "/ws/transcribe":
             logger.warning(f"Client attempted connection to invalid path: {path}")
@@ -176,24 +179,16 @@ class WebSocketServer:
         
         # Create server with proper handler
         server = await websockets.serve(
-            self.handler,  # Use the handler method
+            self.handle_client,  # Use the handle_client method
             self.host,
             self.port
         )
         
         logger.info(f"✅ Whisper server listening at ws://{self.host}:{self.port}/ws/transcribe")
         logger.info("✅ Server ready to accept connections from THRIVE app")
-        logger.info(f"✅ Using model: {self.transcriber.model.device}")
+        logger.info(f"✅ Using model on device: {self.transcriber.device}")
         
         return server
-
-async def health_check(websocket, path):
-    """Simple health check endpoint"""
-    if path == "/health":
-        await websocket.send(json.dumps({"status": "healthy", "service": "whisper-server"}))
-        await websocket.close()
-    else:
-        await websocket.close(code=1008, reason="Invalid path")
 
 def main():
     """Main function to start the server"""
