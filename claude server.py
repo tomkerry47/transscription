@@ -2,6 +2,7 @@
 """
 Real-time Whisper WebSocket Server for THRIVE Assessment Tool
 Supports continuous audio streaming and transcription
+FINAL VERSION - Fixed WebSocket handler signature
 """
 
 import asyncio
@@ -12,13 +13,9 @@ import torch
 import whisper
 import websockets
 from websockets.exceptions import ConnectionClosed
-from io import BytesIO
-import wave
-import tempfile
-import os
-from collections import deque
 import threading
 import time
+from collections import deque
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -102,8 +99,8 @@ class WebSocketServer:
         self.transcriber = WhisperTranscriber(model_name=model_name)
         self.active_connections = set()
         
-    async def handle_client(self, websocket, path):
-        """Handle WebSocket client connection"""
+    async def handler(self, websocket, path):
+        """Handle WebSocket client connection - using handler name to match websockets library"""
         # Check if the client is connecting to the correct path
         if path != "/ws/transcribe":
             logger.warning(f"Client attempted connection to invalid path: {path}")
@@ -111,7 +108,7 @@ class WebSocketServer:
             return
             
         client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-        logger.info(f"Client connected: {client_id}")
+        logger.info(f"Client connected: {client_id} on path: {path}")
         self.active_connections.add(websocket)
         
         # Start transcription task for this client
@@ -123,12 +120,21 @@ class WebSocketServer:
             async for message in websocket:
                 if isinstance(message, bytes):
                     # Raw audio data
+                    logger.debug(f"Received {len(message)} bytes of audio from {client_id}")
                     self.transcriber.add_audio_data(message)
                 else:
                     # Text message (control commands)
                     try:
                         data = json.loads(message)
                         logger.info(f"Received control message from {client_id}: {data}")
+                        
+                        # Handle specific control messages
+                        if data.get("type") == "start":
+                            logger.info(f"Starting transcription for {client_id}")
+                        elif data.get("type") == "stop":
+                            logger.info(f"Stopping transcription for {client_id}")
+                            break
+                            
                     except json.JSONDecodeError:
                         logger.warning(f"Invalid JSON from {client_id}: {message}")
                         
@@ -144,7 +150,7 @@ class WebSocketServer:
     async def transcription_loop(self, websocket, client_id):
         """Continuous transcription loop for a client"""
         try:
-            while True:
+            while websocket in self.active_connections:
                 # Get audio chunk from buffer
                 chunk = self.transcriber.get_audio_chunk()
                 if chunk is not None:
@@ -168,17 +174,26 @@ class WebSocketServer:
         """Start the WebSocket server"""
         logger.info(f"Starting Whisper WebSocket server on {self.host}:{self.port}")
         
-        # Create server without path parameter - path checking is done in handle_client
+        # Create server with proper handler
         server = await websockets.serve(
-            self.handle_client,
+            self.handler,  # Use the handler method
             self.host,
             self.port
         )
         
-        logger.info(f"Whisper server listening at ws://{self.host}:{self.port}/ws/transcribe")
-        logger.info("Server ready to accept connections from THRIVE app")
+        logger.info(f"✅ Whisper server listening at ws://{self.host}:{self.port}/ws/transcribe")
+        logger.info("✅ Server ready to accept connections from THRIVE app")
+        logger.info(f"✅ Using model: {self.transcriber.model.device}")
         
         return server
+
+async def health_check(websocket, path):
+    """Simple health check endpoint"""
+    if path == "/health":
+        await websocket.send(json.dumps({"status": "healthy", "service": "whisper-server"}))
+        await websocket.close()
+    else:
+        await websocket.close(code=1008, reason="Invalid path")
 
 def main():
     """Main function to start the server"""
@@ -195,26 +210,33 @@ def main():
     
     # Check CUDA availability
     if torch.cuda.is_available():
-        logger.info(f"CUDA available: {torch.cuda.get_device_name()}")
-        logger.info(f"CUDA version: {torch.version.cuda}")
+        logger.info(f"✅ CUDA available: {torch.cuda.get_device_name()}")
+        logger.info(f"✅ CUDA version: {torch.version.cuda}")
     else:
-        logger.warning("CUDA not available, using CPU (will be slower)")
+        logger.warning("⚠️  CUDA not available, using CPU (will be slower)")
     
     # Create and start server
     server = WebSocketServer(host=args.host, port=args.port, model_name=args.model)
     
-    try:
-        # Run the server with proper asyncio setup
-        async def run_server():
+    async def run_server():
+        """Run the server with proper error handling"""
+        try:
             server_instance = await server.start_server()
-            # Keep the server running
+            logger.info("🚀 Server started successfully! Press Ctrl+C to stop.")
+            
+            # Keep the server running indefinitely
             await server_instance.wait_closed()
-        
+            
+        except Exception as e:
+            logger.error(f"❌ Server error: {e}")
+            raise
+    
+    try:
         asyncio.run(run_server())
     except KeyboardInterrupt:
-        logger.info("Server shutdown requested")
+        logger.info("🛑 Server shutdown requested by user")
     except Exception as e:
-        logger.error(f"Server error: {e}")
+        logger.error(f"❌ Fatal server error: {e}")
 
 if __name__ == "__main__":
     main()
