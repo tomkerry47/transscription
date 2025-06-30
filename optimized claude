@@ -89,7 +89,6 @@ class WhisperTranscriber:
         # Audio buffer
         self.audio_buffer = deque()
         self.buffer_lock = threading.Lock()
-        
         logger.info(f"Real-time transcriber initialized for client {self.client_id} with {self.phrase_timeout}s phrase timeout")
     
     def add_audio_data(self, audio_bytes):
@@ -98,7 +97,7 @@ class WhisperTranscriber:
             with self.buffer_lock:
                 self.audio_buffer.extend(audio_bytes)
                 if len(audio_bytes) > 0:
-                    logger.debug(f"[{self.client_id}] Added {len(audio_bytes)} bytes, buffer size: {len(self.audio_buffer)}")
+                    logger.info(f"[{self.client_id}] Added {len(audio_bytes)} bytes, buffer size: {len(self.audio_buffer)}")
         except Exception as e:
             logger.error(f"Error adding audio data for {self.client_id}: {e}")
     
@@ -109,7 +108,7 @@ class WhisperTranscriber:
             
             with self.buffer_lock:
                 if len(self.audio_buffer) < self.min_chunk_samples:
-                    logger.debug(f"[{self.client_id}] Buffer too small: {len(self.audio_buffer)} < {self.min_chunk_samples}")
+                    logger.info(f"[{self.client_id}] Buffer too small: {len(self.audio_buffer)} < {self.min_chunk_samples}")
                     return None
                 
                 # Check if phrase is complete (silence timeout)
@@ -293,8 +292,7 @@ class WebSocketServer:
             'client_id': client_id,
             'transcriber': client_transcriber
         }
-        
-        # Start real-time transcription task with client's own transcriber
+          # Start real-time transcription task with client's own transcriber
         transcription_task = asyncio.create_task(
             self.real_time_transcription_loop(websocket, client_id, client_transcriber)
         )
@@ -303,7 +301,7 @@ class WebSocketServer:
             async for message in websocket:
                 if isinstance(message, bytes):
                     # Raw audio data - send to this client's transcriber only
-                    logger.debug(f"Received {len(message)} bytes from {client_id}")
+                    logger.info(f"Received {len(message)} bytes from {client_id}")
                     client_transcriber.add_audio_data(message)
                 else:
                     # Control messages
