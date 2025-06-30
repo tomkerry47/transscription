@@ -1,29 +1,41 @@
-Activating virtual environment...
-Starting Whisper server with large-v3-turbo model...
-INFO:__main__:✅ CUDA available: NVIDIA GeForce RTX 3050
-INFO:__main__:✅ CUDA version: 11.8
-INFO:__main__:🎯 Model: large-v3-turbo
-INFO:__main__:⏱️ Phrase timeout: 3.0s
-INFO:__main__:🚀 Using large-v3-turbo for highest quality and speed!
-INFO:__main__:Initializing SHARED Whisper model for all clients...
-INFO:__main__:Loading SHARED Whisper model 'large-v3-turbo' on device: cuda
-INFO:__main__:✅ SHARED Whisper model 'large-v3-turbo' loaded successfully
-INFO:__main__:Real-time WebSocket server initialized with SHARED large-v3-turbo model
-INFO:__main__:Phrase timeout set to 3.0s for all future connections
-INFO:__main__:Starting real-time Whisper WebSocket server v3 on 0.0.0.0:8000
-INFO:websockets.server:server listening on 0.0.0.0:8000
-INFO:__main__:✅ Real-time Whisper server v3 listening at ws://0.0.0.0:8000/ws/transcribe
-INFO:__main__:✅ Server ready for real-time transcription with self-correction
-INFO:__main__:🚀 Using SHARED model - clients connect instantly without model loading
-INFO:__main__:✅ Using model on device: NVIDIA GeForce RTX 3050
-INFO:__main__:✅ Phrase timeout: 3.0s
-INFO:__main__:🚀 Real-time server v3 OPTIMIZED started successfully! Press Ctrl+C to stop.
-INFO:__main__:🔄 Server will provide real-time updates with self-correction
-INFO:__main__:⚡ OPTIMIZED: Using SHARED model - clients connect instantly!
-INFO:__main__:🎯 PERFORMANCE: Single model load, multiple clients supported
-INFO:__main__:👥 Each client connection gets its own isolated transcriber
-INFO:websockets.server:connection open
-INFO:__main__:Real-time transcriber initialized for client 10.115.1.166:52179-1 with 3.0s phrase timeout
-INFO:__main__:Client connected: 10.115.1.166:52179-1 (Using SHARED model, no loading needed)
-INFO:__main__:Starting real-time transcription for 10.115.1.166:52179-1
-INFO:__main__:Transcriber session reset for 10.115.1.166:52179-1 - cleared all previous data
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:Starting real-time transcription for 10.115.1.166:52910-1
+INFO:__main__:Transcriber session reset for 10.115.1.166:52910-1 - cleared all previous data
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:[10.115.1.166:52910-1] Buffer too small: 0 < 16000
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 84
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 168
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 252
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 336
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 420
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 504
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 588
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 672
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 756
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 840
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 924
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 1008
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 1092
+INFO:__main__:Received 84 bytes from 10.115.1.166:52910-1
+INFO:__main__:[10.115.1.166:52910-1] Added 84 bytes, buffer size: 1176
