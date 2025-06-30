@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""
+Real-time Whisper WebSocket Server for THRIVE Assessment Tool
+VERSION 3 OPTIMIZED - Shared model pool for better performance
+Based on techniques from davabase/whisper_real_time
+"""
+
+import asyncio
+import json
+import logging
+import numpy as np
+import torch
+import whisper
+import websockets
+from websockets.exceptions import ConnectionClosed
+import threading
+import time
+from collections import deque
+from datetime import datetime, timedelta
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class SharedWhisperModel:
+    """Shared Whisper model instance with thread-safe access"""
+    def __init__(self, model_name="medium", device=None):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        logger.info(f"Loading shared Whisper model '{model_name}' on device: {device}")
+        self.model = whisper.load_model(model_name, device=device)
+        self.device = device
+        self.model_name = model_name
+        self.transcription_lock = asyncio.Lock()  # Async lock for model access
+        logger.info(f"✅ Shared model '{model_name}' loaded successfully")
+    
+    async def transcribe_async(self, audio_np, **kwargs):
+        """Thread-safe transcription with async lock"""
+        async with self.transcription_lock:
+            # Run transcription in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, 
+                lambda: self.model.transcribe(audio_np, **kwargs)
+            )
+            return result
+
+class WhisperTranscriber:
+    def __init__(self, shared_model, client_id):
+        """Initialize transcriber with shared model reference"""
+        self.shared_model = shared_model
+        self.client_id = client_id
+        self.device = shared_model.device
+        
+        # Audio parameters
+        self.sample_rate = 16000
+        self.min_chunk_duration = 1.0
+        self.phrase_timeout = 3.0
+        self.min_chunk_samples = int(self.sample_rate * self.min_chunk_duration)
+        
+        # Real-time phrase management
+        self.phrase_bytes = bytes()
+        self.phrase_time = None
+        self.current_phrase_id = 0
+        self.last_transcription = ""
+        self.accumulated_final_text = ""
+        self.current_partial_text = ""
+        self.finalize_requested = False
+        
+        # Audio buffer
+        self.audio_buffer = deque()
+        self.buffer_lock = threading.Lock()
+        
+        logger.info(f"Transcriber initialized for {client_id} using shared model")
+    
+    def add_audio_data(self, audio_bytes):
+        """Add raw audio data to buffer"""
+        try:
+            with self.buffer_lock:
+                self.audio_buffer.extend(audio_bytes)
+        except Exception as e:
+            logger.error(f"[{self.client_id}] Error adding audio data: {e}")
+    
+    async def get_transcription_update(self):
+        """Get real-time transcription update with shared model"""
+        try:
+            now = datetime.utcnow()
+            
+            with self.buffer_lock:
+                if len(self.audio_buffer) < self.min_chunk_samples:
+                    return None
+                
+                # Check if phrase is complete (silence timeout)
+                if self.phrase_time and now - self.phrase_time > timedelta(seconds=self.phrase_timeout):
+                    # Phrase is complete - finalize current partial text
+                    if self.current_partial_text.strip():
+                        # Add current partial to accumulated final text
+                        if self.accumulated_final_text:
+                            self.accumulated_final_text += " " + self.current_partial_text.strip()
+                        else:
+                            self.accumulated_final_text = self.current_partial_text.strip()
+                        
+                        # Send final result for the completed phrase
+                        final_result = {
+                            "text": self.current_partial_text.strip(),
+                            "is_final": True,
+                            "phrase_id": self.current_phrase_id,
+                            "accumulated_text": self.accumulated_final_text,
+                            "confidence": 1.0,
+                            "timestamp": now.isoformat()
+                        }
+                        
+                        # Reset for new phrase
+                        self.current_partial_text = ""
+                        self.phrase_bytes = bytes()
+                        self.current_phrase_id += 1
+                        self.last_transcription = ""
+                        
+                        logger.info(f"[{self.client_id}] Final phrase {self.current_phrase_id-1}: {final_result['text']}")
+                        return final_result
+                
+                # Update phrase time
+                self.phrase_time = now
+                
+                # Get available audio data
+                available_samples = len(self.audio_buffer)
+                chunk_size = min(available_samples, self.sample_rate * 4)  # Max 4 seconds
+                audio_data = bytes([self.audio_buffer.popleft() for _ in range(chunk_size)])
+                
+                # Add to current phrase
+                self.phrase_bytes += audio_data
+                
+                # Convert to numpy array for Whisper
+                audio_np = np.frombuffer(self.phrase_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                
+                # Transcribe using shared model (async)
+                result = await self.shared_model.transcribe_async(
+                    audio_np,
+                    fp16=torch.cuda.is_available(),
+                    language="en",
+                    word_timestamps=False,
+                    condition_on_previous_text=True
+                )
+                
+                text = result.get("text", "").strip()
+                
+                if text and text != self.last_transcription:
+                    # Update current partial text
+                    self.current_partial_text = text
+                    self.last_transcription = text
+                    
+                    # Send partial result
+                    partial_result = {
+                        "text": text,
+                        "is_final": False,
+                        "phrase_id": self.current_phrase_id,
+                        "accumulated_text": self.accumulated_final_text,
+                        "confidence": result.get("segments", [{}])[0].get("avg_logprob", 0.0) if result.get("segments") else 0.0,
+                        "timestamp": now.isoformat()
+                    }
+                    
+                    logger.debug(f"[{self.client_id}] Partial phrase {self.current_phrase_id}: {text[:50]}...")
+                    return partial_result
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"[{self.client_id}] Error in transcription update: {e}")
+            return None
+    
+    async def finalize_remaining_partials(self):
+        """Finalize any remaining partial text as final"""
+        try:
+            if self.current_partial_text.strip():
+                # Add current partial to accumulated final text
+                if self.accumulated_final_text:
+                    self.accumulated_final_text += " " + self.current_partial_text.strip()
+                else:
+                    self.accumulated_final_text = self.current_partial_text.strip()
+                
+                final_result = {
+                    "text": self.current_partial_text.strip(),
+                    "is_final": True,
+                    "phrase_id": self.current_phrase_id,
+                    "accumulated_text": self.accumulated_final_text,
+                    "confidence": 1.0,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+                # Reset state
+                self.current_partial_text = ""
+                self.phrase_bytes = bytes()
+                self.current_phrase_id += 1
+                self.last_transcription = ""
+                
+                logger.info(f"[{self.client_id}] Finalized remaining partial: {final_result['text']}")
+                return final_result
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"[{self.client_id}] Error finalizing partials: {e}")
+            return None
+    
+    def reset_session(self):
+        """Reset transcriber state for new session"""
+        try:
+            with self.buffer_lock:
+                # Clear audio buffer
+                self.audio_buffer.clear()
+                
+                # Reset phrase state
+                self.phrase_bytes = bytes()
+                
+                # Reset transcription state
+                self.accumulated_final_text = ""
+                self.current_partial_text = ""
+                self.last_transcription = ""
+                
+                # Reset phrase management
+                self.phrase_time = None
+                self.current_phrase_id = 0
+                self.finalize_requested = False
+                
+                logger.info(f"[{self.client_id}] Transcriber session reset")
+                
+        except Exception as e:
+            logger.error(f"[{self.client_id}] Error resetting session: {e}")
+
+class WebSocketServer:
+    def __init__(self, host="0.0.0.0", port=8000, model_name="medium"):
+        self.host = host
+        self.port = port
+        self.model_name = model_name
+        self.phrase_timeout = 3.0
+        self.active_connections = {}
+        self.connection_counter = 0
+        
+        # Initialize shared model ONCE at server startup
+        self.shared_model = None
+        logger.info(f"WebSocket server initialized (model will be loaded on first startup)")
+    
+    async def ensure_model_loaded(self):
+        """Ensure shared model is loaded (lazy loading)"""
+        if self.shared_model is None:
+            logger.info("Loading shared Whisper model...")
+            self.shared_model = SharedWhisperModel(model_name=self.model_name)
+            logger.info("✅ Shared model ready for all clients")
+    
+    def set_phrase_timeout(self, timeout):
+        """Set the phrase timeout for all future client connections"""
+        self.phrase_timeout = timeout
+        logger.info(f"Phrase timeout set to {timeout}s")
+    
+    async def handle_client(self, websocket):
+        """Handle WebSocket client connection with shared model"""
+        path = websocket.path if hasattr(websocket, 'path') else "/ws/transcribe"
+        
+        if path != "/ws/transcribe":
+            logger.warning(f"Client attempted connection to invalid path: {path}")
+            await websocket.close(code=1008, reason="Invalid path")
+            return
+        
+        # Ensure shared model is loaded
+        await self.ensure_model_loaded()
+        
+        # Create unique client ID
+        self.connection_counter += 1
+        client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}-{self.connection_counter}"
+        
+        # Create transcriber using shared model (FAST!)
+        client_transcriber = WhisperTranscriber(self.shared_model, client_id)
+        client_transcriber.phrase_timeout = self.phrase_timeout
+        
+        logger.info(f"✅ Client connected: {client_id} (using shared model)")
+        self.active_connections[websocket] = {
+            'client_id': client_id,
+            'transcriber': client_transcriber
+        }
+        
+        # Start real-time transcription task
+        transcription_task = asyncio.create_task(
+            self.real_time_transcription_loop(websocket, client_id, client_transcriber)
+        )
+        
+        try:
+            async for message in websocket:
+                if isinstance(message, bytes):
+                    # Raw audio data
+                    logger.debug(f"Received {len(message)} bytes from {client_id}")
+                    client_transcriber.add_audio_data(message)
+                else:
+                    # Control messages
+                    try:
+                        data = json.loads(message)
+                        if data.get("type") == "start":
+                            logger.info(f"Starting transcription for {client_id}")
+                            client_transcriber.reset_session()
+                        elif data.get("type") == "finalize":
+                            logger.info(f"Finalizing partials for {client_id}")
+                            final_result = await client_transcriber.finalize_remaining_partials()
+                            if final_result:
+                                message = json.dumps(final_result)
+                                await websocket.send(message)
+                                logger.info(f"Sent finalized result to {client_id}")
+                        elif data.get("type") == "stop":
+                            logger.info(f"Stopping transcription for {client_id}")
+                            break
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON from {client_id}: {message}")
+                        
+        except ConnectionClosed:
+            logger.info(f"Client disconnected: {client_id}")
+        except Exception as e:
+            logger.error(f"Error handling client {client_id}: {e}")
+        finally:
+            # Clean up client resources
+            if websocket in self.active_connections:
+                del self.active_connections[websocket]
+            transcription_task.cancel()
+            logger.info(f"🧹 Cleaned up connection for {client_id}")
+    
+    async def real_time_transcription_loop(self, websocket, client_id, client_transcriber):
+        """Real-time transcription loop with shared model"""
+        try:
+            last_phrase_id = -1
+            
+            while websocket in self.active_connections:
+                # Get transcription update (now async)
+                result = await client_transcriber.get_transcription_update()
+                
+                if result:
+                    # Send update to client
+                    message = json.dumps(result)
+                    await websocket.send(message)
+                    
+                    # Log the type of update
+                    update_type = "FINAL" if result["is_final"] else "PARTIAL"
+                    if result["phrase_id"] != last_phrase_id:
+                        logger.info(f"New phrase {result['phrase_id']} for {client_id}")
+                        last_phrase_id = result["phrase_id"]
+                    
+                    logger.debug(f"Sent {update_type} to {client_id}: {result['text'][:50]}...")
+                
+                # Small delay for CPU efficiency
+                await asyncio.sleep(0.05)  # Reduced from 0.1s for better responsiveness
+                
+        except asyncio.CancelledError:
+            logger.info(f"Transcription cancelled for {client_id}")
+        except Exception as e:
+            logger.error(f"Transcription error for {client_id}: {e}")
+    
+    async def start_server(self):
+        """Start the WebSocket server"""
+        logger.info(f"Starting optimized Whisper WebSocket server on {self.host}:{self.port}")
+        
+        server = await websockets.serve(
+            self.handle_client,
+            self.host,
+            self.port
+        )
+        
+        logger.info(f"✅ Optimized server listening at ws://{self.host}:{self.port}/ws/transcribe")
+        logger.info("🚀 Using shared model for optimal performance")
+        logger.info("👥 Multiple clients supported with single model instance")
+        
+        return server
+
+def main():
+    """Main function to start the optimized server"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Optimized Whisper WebSocket Server v3 for THRIVE")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--model", default="medium", 
+                       choices=["tiny", "base", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"],
+                       help="Whisper model to use")
+    parser.add_argument("--phrase_timeout", default=3.0, type=float,
+                       help="Seconds of silence before phrase is considered complete")
+    
+    args = parser.parse_args()
+    
+    # Check CUDA availability
+    if torch.cuda.is_available():
+        logger.info(f"✅ CUDA available: {torch.cuda.get_device_name()}")
+        logger.info(f"✅ CUDA version: {torch.version.cuda}")
+    else:
+        logger.warning("⚠️  CUDA not available, using CPU (will be slower)")
+    
+    # Show configuration
+    logger.info(f"🎯 Model: {args.model}")
+    logger.info(f"⏱️ Phrase timeout: {args.phrase_timeout}s")
+    logger.info(f"🔧 Optimization: Shared model pool enabled")
+    
+    # Create optimized server
+    server = WebSocketServer(host=args.host, port=args.port, model_name=args.model)
+    server.set_phrase_timeout(args.phrase_timeout)
+    
+    async def run_server():
+        """Run the server with proper error handling"""
+        try:
+            server_instance = await server.start_server()
+            logger.info("🚀 Optimized server started successfully! Press Ctrl+C to stop.")
+            logger.info("⚡ Single client performance restored")
+            logger.info("👥 Multiple clients supported efficiently")
+            
+            # Keep the server running indefinitely
+            await server_instance.wait_closed()
+            
+        except Exception as e:
+            logger.error(f"❌ Server error: {e}")
+            raise
+    
+    try:
+        asyncio.run(run_server())
+    except KeyboardInterrupt:
+        logger.info("🛑 Server shutdown requested by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal server error: {e}")
+
+if __name__ == "__main__":
+    main()
