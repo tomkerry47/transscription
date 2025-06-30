@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Real-time Whisper WebSocket Server for THRIVE Assessment Tool
-VERSION 3 - Enhanced with real-time self-correction and phrase management
+VERSION 3 - OPTIMIZED with shared model architecture
 Based on techniques from davabase/whisper_real_time
-FIXED VERSION - Multiple client support with isolated transcribers
+OPTIMIZED VERSION - Shared model for all clients with instant connections
 """
 
 import asyncio
@@ -91,12 +91,14 @@ class WhisperTranscriber:
         self.buffer_lock = threading.Lock()
         
         logger.info(f"Real-time transcriber initialized for client {self.client_id} with {self.phrase_timeout}s phrase timeout")
-      
+    
     def add_audio_data(self, audio_bytes):
         """Add raw audio data to buffer"""
         try:
             with self.buffer_lock:
                 self.audio_buffer.extend(audio_bytes)
+                if len(audio_bytes) > 0:
+                    logger.debug(f"[{self.client_id}] Added {len(audio_bytes)} bytes, buffer size: {len(self.audio_buffer)}")
         except Exception as e:
             logger.error(f"Error adding audio data for {self.client_id}: {e}")
     
@@ -107,6 +109,7 @@ class WhisperTranscriber:
             
             with self.buffer_lock:
                 if len(self.audio_buffer) < self.min_chunk_samples:
+                    logger.debug(f"[{self.client_id}] Buffer too small: {len(self.audio_buffer)} < {self.min_chunk_samples}")
                     return None
                 
                 # Check if phrase is complete (silence timeout)
@@ -145,11 +148,13 @@ class WhisperTranscriber:
                 # Get available audio data
                 available_samples = len(self.audio_buffer)
                 chunk_size = min(available_samples, self.sample_rate * 4)  # Max 4 seconds
+                logger.debug(f"[{self.client_id}] Processing {chunk_size} samples from {available_samples} available")
                 audio_data = bytes([self.audio_buffer.popleft() for _ in range(chunk_size)])
                 
                 # Add to current phrase
                 self.phrase_bytes += audio_data
-                  # Convert to numpy array for Whisper
+                
+                # Convert to numpy array for Whisper
                 audio_np = np.frombuffer(self.phrase_bytes, dtype=np.int16).astype(np.float32) / 32768.0
                 
                 # Transcribe using shared model
@@ -175,7 +180,8 @@ class WhisperTranscriber:
                         "phrase_id": self.current_phrase_id,
                         "accumulated_text": self.accumulated_final_text,
                         "confidence": result.get("segments", [{}])[0].get("avg_logprob", 0.0) if result.get("segments") else 0.0,
-                        "timestamp": now.isoformat()                    }
+                        "timestamp": now.isoformat()
+                    }
                     
                     logger.debug(f"Partial phrase {self.current_phrase_id}: {text[:50]}...")
                     return partial_result
@@ -204,7 +210,8 @@ class WhisperTranscriber:
                     "confidence": 1.0,
                     "timestamp": datetime.utcnow().isoformat()
                 }
-                  # Reset state
+                
+                # Reset state
                 self.current_partial_text = ""
                 self.phrase_bytes = bytes()
                 self.current_phrase_id += 1
@@ -272,7 +279,8 @@ class WebSocketServer:
             logger.warning(f"Client attempted connection to invalid path: {path}")
             await websocket.close(code=1008, reason="Invalid path")
             return
-          # Create unique client ID and transcriber that uses shared model
+        
+        # Create unique client ID and transcriber that uses shared model
         self.connection_counter += 1
         client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}-{self.connection_counter}"
         
@@ -351,7 +359,8 @@ class WebSocketServer:
                         last_phrase_id = result["phrase_id"]
                     
                     logger.debug(f"Sent {update_type} to {client_id}: {result['text'][:50]}...")
-                  # Small delay for CPU efficiency
+                
+                # Small delay for CPU efficiency
                 await asyncio.sleep(0.1)
                 
         except asyncio.CancelledError:
@@ -381,7 +390,7 @@ def main():
     """Main function to start the server"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Real-time Whisper WebSocket Server v3 for THRIVE")
+    parser = argparse.ArgumentParser(description="Real-time Whisper WebSocket Server v3 OPTIMIZED for THRIVE")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     parser.add_argument("--model", default="medium", 
@@ -409,7 +418,8 @@ def main():
         logger.info("🎯 Using large-v3 for highest quality!")
     elif args.model == "medium":
         logger.info("⚖️ Using medium model for balanced performance!")
-      # Create server
+    
+    # Create server
     server = WebSocketServer(host=args.host, port=args.port, model_name=args.model)
     server.set_phrase_timeout(args.phrase_timeout)  # Set phrase timeout for all connections
     
