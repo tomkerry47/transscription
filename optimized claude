@@ -69,13 +69,11 @@ class WhisperTranscriber:
     def __init__(self, shared_model, client_id="unknown"):
         """Initialize Whisper transcriber with shared model reference"""
         self.shared_model = shared_model
-        self.client_id = client_id
-        
-        # Audio parameters
+        self.client_id = client_id        # Audio parameters
         self.sample_rate = 16000
-        self.min_chunk_duration = 1.0  # Minimum audio for transcription
+        self.min_chunk_duration = 0.1  # Minimum audio for transcription (100ms)
         self.phrase_timeout = 3.0  # Seconds of silence before phrase is complete
-        self.min_chunk_samples = int(self.sample_rate * self.min_chunk_duration)
+        self.min_chunk_samples = int(self.sample_rate * self.min_chunk_duration)  # 1600 samples = 0.1 seconds
         
         # Real-time phrase management (inspired by GitHub repo)
         self.phrase_bytes = bytes()
@@ -105,10 +103,9 @@ class WhisperTranscriber:
         """Get real-time transcription update with proper text accumulation"""
         try:
             now = datetime.utcnow()
-            
             with self.buffer_lock:
-                if len(self.audio_buffer) < self.min_chunk_samples:
-                    logger.info(f"[{self.client_id}] Buffer too small: {len(self.audio_buffer)} < {self.min_chunk_samples}")
+                if len(self.audio_buffer) < self.min_chunk_samples * 2:  # Convert samples to bytes (16-bit = 2 bytes per sample)
+                    logger.info(f"[{self.client_id}] Buffer too small: {len(self.audio_buffer)} bytes < {self.min_chunk_samples * 2} bytes required ({self.min_chunk_samples} samples)")
                     return None
                 
                 # Check if phrase is complete (silence timeout)
@@ -143,12 +140,11 @@ class WhisperTranscriber:
                 
                 # Update phrase time
                 self.phrase_time = now
-                
-                # Get available audio data
-                available_samples = len(self.audio_buffer)
-                chunk_size = min(available_samples, self.sample_rate * 4)  # Max 4 seconds
-                logger.debug(f"[{self.client_id}] Processing {chunk_size} samples from {available_samples} available")
-                audio_data = bytes([self.audio_buffer.popleft() for _ in range(chunk_size)])
+                  # Get available audio data
+                available_bytes = len(self.audio_buffer)
+                chunk_size_bytes = min(available_bytes, self.sample_rate * 4 * 2)  # Max 4 seconds in bytes (2 bytes per sample)
+                logger.debug(f"[{self.client_id}] Processing {chunk_size_bytes} bytes from {available_bytes} available")
+                audio_data = bytes([self.audio_buffer.popleft() for _ in range(chunk_size_bytes)])
                 
                 # Add to current phrase
                 self.phrase_bytes += audio_data
